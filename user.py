@@ -4,11 +4,12 @@ import zmq
 from consts import * #-
 
 class SpecialListening(threading.Thread):
-    def __init__(self, ip, port, subscriberSocket):
+    def __init__(self, ip, port, subscriberSocket, countConnectionAddress):
         threading.Thread.__init__(self, daemon=True)
         self.ip = ip
         self.port = port
         self.subscriberSocket = subscriberSocket
+        self.countConnectionAddress = countConnectionAddress
         self.context = zmq.Context()
         self.initSocket()
     
@@ -23,10 +24,22 @@ class SpecialListening(threading.Thread):
                 if (message[0] == 'INDIVIDUAL'):
                     print("FROM PERSON {}: {}".format(message[1], ' '.join(message[2:])))
                 elif (message[0] == 'SERVER'):
-                    print("{} -> ({} JOINED TO THE GROUP)".format(message[3], message[4]))
+                    address = message[2]
                     if (message[1] == 'CONNECT'):
-                        ip, port = message[2].split('/')
-                        self.subscriberSocket.connect("tcp://"+ ip +":"+ port)
+                        print("{} -> ({} JOINED TO THE GROUP)".format(message[3], message[4]))
+                        if (address not in self.countConnectionAddress):
+                            self.countConnectionAddress[address] = 0
+                            ip, port = address.split('/')
+                            self.subscriberSocket.connect("tcp://"+ ip +":"+ port)
+                        self.countConnectionAddress[address] += 1
+                    elif (message[1] == 'LEAVE'):
+                        print("{} -> ({} LEAVE THE GROUP)".format(message[3], message[4]))
+                        if (address in self.countConnectionAddress):
+                            self.countConnectionAddress[address] -= 1
+                            if (self.countConnectionAddress[address] == 0):
+                                ip, port = address.split('/')
+                                self.subscriberSocket.disconnect("tcp://"+ ip +":"+ port)
+                                self.countConnectionAddress.pop(address)
             except:
                 self.initSocket()
 
@@ -57,6 +70,7 @@ class User:
 
         self.friends = {}
         self.myGroups = []
+        self.countConnectionAddress = {}
 
         self.specialListening = None
         self.subscriberListening = None
@@ -86,14 +100,15 @@ class User:
         return (
             (operation[0] == 'TO' and len(operation) >= 3) or
             (operation[0] == 'PUB' and len(operation) >= 3) or
-            (operation[0] == 'REGISTER' and len(operation) == 2)
+            (operation[0] == 'REGISTER' and len(operation) == 2) or
+            (operation[0] == 'LEAVE' and len(operation) == 2)
         )
 
     def start(self):
         self.initPublisher()
         self.subscriberSocket = self.context.socket(zmq.SUB)
         self.subscriberListening = SubscriberListening(self.subscriberSocket, self.name)
-        self.specialListening = SpecialListening(self.ip, self.specialPort, self.subscriberSocket)
+        self.specialListening = SpecialListening(self.ip, self.specialPort, self.subscriberSocket, self.countConnectionAddress)
         self.subscriberListening.start()
         self.specialListening.start()
         self.connectToServer()
@@ -111,6 +126,8 @@ class User:
         self.exit()
     
     def exit(self):
+        while(len(self.myGroups)):
+            self.processLeave(self.myGroups[0])
         self.socketToServer.send(str.encode("GOODBYE {}".format(self.name)))
         response = bytes.decode(self.socketToServer.recv())
 
@@ -123,6 +140,8 @@ class User:
             self.processRegister(operation[1])
         elif (operation[0] == 'TO'):
             self.processIndividualMessage(operation[1], ' '.join(operation[2:]))
+        elif (operation[0] == 'LEAVE'):
+            self.processLeave(operation[1])
 
     def processAddress(self, name):
         self.socketToServer.send(str.encode("ADDRESS {}".format(name)))
@@ -137,12 +156,16 @@ class User:
     def processRegister(self, group):
         self.socketToServer.send(str.encode("REGISTER {} {}".format(self.name, group)))
         response = bytes.decode(self.socketToServer.recv())
-        if (response != "ACK"):
-            self.myGroups.append(group)
+        if (response == "ACK"):
+            return
+        self.myGroups.append(group)
         response = response.split()
         for address in response:
-            ip, port = address.split('/')
-            self.subscriberSocket.connect("tcp://"+ ip +":"+ port)
+            if (address not in self.countConnectionAddress):
+                self.countConnectionAddress[address] = 0
+                ip, port = address.split('/')
+                self.subscriberSocket.connect("tcp://"+ ip +":"+ port)
+            self.countConnectionAddress[address] += 1
         self.subscriberSocket.setsockopt_string(zmq.SUBSCRIBE, group)
     
     def processPublication(self, group, message):
@@ -167,6 +190,25 @@ class User:
             "INDIVIDUAL {} {}".format(self.name, message)
         ))
         self.socketToIndividual.disconnect(addressWay)
+    
+    def processLeave(self, group):
+        if (group not in self.myGroups):
+            print("NO GROUP FOUNDED.")
+            return
+        
+        self.socketToServer.send(str.encode("LEAVE {} {}".format(self.name, group)))
+        response = bytes.decode(self.socketToServer.recv())
+        if (response == "ACK"):
+            return
+        response = response.split()
+        for address in response:
+            self.countConnectionAddress[address] -= 1
+            if (self.countConnectionAddress[address] == 0):
+                self.countConnectionAddress.pop(address)
+                ip, port = address.split('/')
+                self.subscriberSocket.disconnect("tcp://"+ ip +":"+ port)
+        self.subscriberSocket.setsockopt_string(zmq.UNSUBSCRIBE, group)
+        self.myGroups.remove(group)
         
 
 if (__name__ == '__main__'):
