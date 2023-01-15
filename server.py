@@ -128,8 +128,6 @@ class WorkThread(threading.Thread):
 class Server():
     def __init__(self):
 
-        descPoint = "tcp://"+ HOST +":"+ PORT
-
         self.serverSocket = socket(AF_INET, SOCK_STREAM)
         self.serverSocket.bind((HOST, int(PORT)))
         self.serverSocket.listen(5)

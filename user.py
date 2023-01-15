@@ -67,6 +67,7 @@ class User:
         self.specialPort = specialPort
         self.context = zmq.Context()
 
+        self.socketToServer = None
         self.socketToIndividual = None
 
         self.friends = {}
