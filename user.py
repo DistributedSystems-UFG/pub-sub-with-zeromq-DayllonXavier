@@ -11,10 +11,11 @@ class SpecialListening(threading.Thread):
         self.port = port
         self.subscriberSocket = subscriberSocket
         self.countConnectionAddress = countConnectionAddress
-        self.context = zmq.Context()
+        self.context = None
         self.initSocket()
     
     def initSocket(self):
+        self.context = zmq.Context()
         self.specialListeningSocket = self.context.socket(zmq.REP)
         self.specialListeningSocket.bind("tcp://"+ self.ip +":"+ self.port)
     
