@@ -67,7 +67,6 @@ class User:
         self.context = zmq.Context()
 
         self.socketToIndividual = None
-        #self.subscriberSocket = None
 
         self.friends = {}
         self.myGroups = []
@@ -131,7 +130,8 @@ class User:
                 print("Invalid Operation.")
                 continue
             self.processOperation(operation)
-        self.exit()
+        if (self.listening):
+            self.exit()
     
     def exit(self):
         while(len(self.myGroups)):
@@ -187,8 +187,6 @@ class User:
             print("NO GROUP FOUNDED.")
             return
         self.publisherSocket.send(str.encode("{} {} {}".format(group, self.name, message)))
-        #if (self.name == 'DAYLLON'):
-        #    self.subscriberSocket.connect("tcp://"+ self.ip +":"+ '9998')
 
     def processIndividualMessage(self, name, message):
         if (name not in self.friends):
