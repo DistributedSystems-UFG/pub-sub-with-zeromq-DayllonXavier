@@ -1,5 +1,6 @@
 import sys
 import threading
+from socket import *
 import zmq
 from consts import * #-
 
@@ -64,7 +65,7 @@ class User:
         self.port = port
         self.specialPort = specialPort
         self.context = zmq.Context()
-        self.socketToServer = self.context.socket(zmq.REQ)
+
         self.socketToIndividual = None
         #self.subscriberSocket = None
 
@@ -76,21 +77,28 @@ class User:
         self.subscriberListening = None
 
     def connectToServer(self):
-        serverDescription = "tcp://"+ HOST +":"+ PORT
-        self.socketToServer.connect(serverDescription)
+        self.socketToServer = socket(AF_INET, SOCK_STREAM)
+        try:
+            self.socketToServer.connect((HOST, int(PORT)))
+        except:
+            print("Server is down. Exiting...")
+            exit(1)
 
-        self.saudationToServer()
+    def disconnectToServer(self):
+        self.socketToServer.close()
 
     def initPublisher(self):
         self.publisherSocket = self.context.socket(zmq.PUB)
         self.publisherSocket.bind("tcp://"+ self.ip +":"+ self.port)
 
     def saudationToServer(self):
+        self.connectToServer()
         self.socketToServer.send(str.encode("SAUDATION {} {} {} {}".format(self.name, self.ip, self.port, self.specialPort)))
-        response = bytes.decode(self.socketToServer.recv())
+        response = bytes.decode(self.socketToServer.recv(2048))
         if (response != "ACK"):
             print(response)
             self.listening = False
+        self.disconnectToServer()
 
     def validOperation(self, operation):
         while ("" in operation):
@@ -111,7 +119,7 @@ class User:
         self.specialListening = SpecialListening(self.ip, self.specialPort, self.subscriberSocket, self.countConnectionAddress)
         self.subscriberListening.start()
         self.specialListening.start()
-        self.connectToServer()
+        self.saudationToServer()
         while(self.listening):
             operation = input()
             if (operation == ''):
@@ -128,8 +136,10 @@ class User:
     def exit(self):
         while(len(self.myGroups)):
             self.processLeave(self.myGroups[0])
+        self.connectToServer()
         self.socketToServer.send(str.encode("GOODBYE {}".format(self.name)))
-        response = bytes.decode(self.socketToServer.recv())
+        response = bytes.decode(self.socketToServer.recv(2048))
+        self.disconnectToServer()
 
     def processOperation(self, operation):
         if (operation[0] == 'PUB'):
@@ -144,20 +154,24 @@ class User:
             self.processLeave(operation[1])
 
     def processAddress(self, name):
+        self.connectToServer()
         self.socketToServer.send(str.encode("ADDRESS {}".format(name)))
-        response = bytes.decode(self.socketToServer.recv())
+        response = bytes.decode(self.socketToServer.recv(2048))
         if (response == "NACK"):
             print("No user founded.")
             return False
         
         self.friends[name] = response
+        self.disconnectToServer()
         return True
 
     def processRegister(self, group):
+        self.connectToServer()
         self.socketToServer.send(str.encode("REGISTER {} {}".format(self.name, group)))
-        response = bytes.decode(self.socketToServer.recv())
+        response = bytes.decode(self.socketToServer.recv(2048))
         if (response == "ACK"):
             return
+        self.disconnectToServer()
         self.myGroups.append(group)
         response = response.split()
         for address in response:
@@ -196,10 +210,12 @@ class User:
             print("NO GROUP FOUNDED.")
             return
         
+        self.connectToServer()
         self.socketToServer.send(str.encode("LEAVE {} {}".format(self.name, group)))
-        response = bytes.decode(self.socketToServer.recv())
+        response = bytes.decode(self.socketToServer.recv(2048))
         if (response == "ACK"):
             return
+        self.disconnectToServer()
         response = response.split()
         for address in response:
             self.countConnectionAddress[address] -= 1
@@ -214,7 +230,3 @@ class User:
 if (__name__ == '__main__'):
     user = User(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
     user.start()
-
-#s.send(str.encode("LEAVE NANAN"))
-#message = bytes.decode(s.recv())
-#print(message)

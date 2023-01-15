@@ -1,18 +1,29 @@
 import zmq
+import threading
+from socket import *
+import pickle
 from consts import * #-
 
-class Server():
-    def __init__(self):
+class WorkThread(threading.Thread):
+    def __init__(self, connection, groups, users):
+        threading.Thread.__init__(self, daemon=True)
+        self.serverSocket = connection
+        self.groups = groups
+        self.users = users
+
         self.context = zmq.Context()
 
-        descPoint = "tcp://"+ HOST +":"+ PORT
+    def run(self):
+        requisition = bytes.decode(self.serverSocket.recv(1024)).split()
+        print(requisition)
 
-        self.serverSocket = self.context.socket(zmq.REP)
-        self.serverSocket.bind(descPoint)
-        self.specialSocket = None
+        if (not self.validRequisition(requisition)):
+            self.serverSocket.send(str.encode("INVALID OPERATION."))
+            return
 
-        self.groups = {}
-        self.users = {}
+        self.processRequisition(requisition)
+
+        self.serverSocket.close()
 
     def validRequisition(self, requisition):
         while ("" in requisition):
@@ -26,19 +37,6 @@ class Server():
             (requisition[0] == 'ADDRESS' and len(requisition) == 2) or
             (requisition[0] == 'LEAVE' and len(requisition) == 3)
         )
-
-    def start(self):
-        print("Server listening...")
-        while True:
-            requisition = bytes.decode(self.serverSocket.recv()).split()
-            print(requisition)
-            if (not self.validRequisition(requisition)):
-                self.serverSocket.send(str.encode("INVALID OPERATION."))
-                continue
-
-            self.processRequisition(requisition)
-
-            #s.send(str.encode(message + "*"))
     
     def processRequisition(self, requisition):
         if (requisition[0] == 'SAUDATION'):
@@ -127,16 +125,25 @@ class Server():
             ))
             self.specialSocket.disconnect(addressWay)
 
+class Server():
+    def __init__(self):
+
+        descPoint = "tcp://"+ HOST +":"+ PORT
+
+        self.serverSocket = socket(AF_INET, SOCK_STREAM)
+        self.serverSocket.bind((HOST, int(PORT)))
+        self.serverSocket.listen(5)
+
+        self.groups = {}
+        self.users = {}
+
+    def start(self):
+        print("Server listening...")
+        while True:
+            conn, addr = self.serverSocket.accept()
+            workThread = WorkThread(conn, self.groups, self.users)
+            workThread.start()
+
 if (__name__  == '__main__'):
     server = Server()
     server.start()
-
-"""
-Types of requisitions
-
-SAUDANTION NAME IP PORT
-ADDRESS NAME
-REGISTER NAME <topic>
-
-
-"""
